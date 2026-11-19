@@ -1,76 +1,45 @@
 import streamlit as st
-import requests
 
-st.title("Task")
+from api_client import api, browser_link
 
-login_tab, signup_tab = st.tabs(["Login", "Signup"])
-
-with login_tab:
-    st.header("LOGIN")
-
-    with st.form("login_form"):
-
-        name = st.text_input("Name")
-        password = st.text_input("Password", type="password")
-        role = st.selectbox("Role", ["Admin", "User"], key="login_role")
-
-        submit = st.form_submit_button("Login")
-
-    if submit:
-
-        response = requests.post(
-            "http://localhost:8000/login",
-            data={
-                "username": name,
-                "password": password
-            },
-        )
+st.set_page_config(page_title="TaskFlow", layout="wide")
 
 
-        if response.status_code == 200:
+def sign_in():
+    st.title("TaskFlow")
+    login_tab, signup_tab = st.tabs(["Sign in", "Create student account"])
 
-            data = response.json()
+    with login_tab:
+        browser_link("Sign in to TaskFlow", "/browser-login")
 
-            access_token = data.get("access_token")
-            role = data["role"]
-            
-            st.session_state["access_token"] = access_token
-            st.session_state["role"] = role
-            st.session_state["logged_in"] = True
-    
-            st.success("Login successful!")
+    with signup_tab:
+        with st.form("signup"):
+            username = st.text_input("Name")
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Create account")
 
-            if role == "Admin":
-                st.switch_page("pages/admin.py")
-            elif role == "User":
-                st.switch_page("pages/user.py")
-            else:
-                st.error("Invalid role. Please contact the administrator.")
-
-        else:
-            st.error("Login failed")
+        if submitted:
+            result = api(
+                "POST",
+                "/signup",
+                authenticated=False,
+                json={"username": username, "email": email.strip(), "password": password},
+            )
+            if result is not None:
+                st.success("Account created. Open the Sign in tab to continue.")
 
 
-    
+account = api("GET", "/me") if st.context.cookies.get("taskflow_session") else None
 
-with signup_tab:
-    st.header("SIGNUP")
+if account is None:
+    page = st.Page(sign_in, title="Sign in", default=True)
+else:
+    st.sidebar.text(f"Logged in as {account['username']} ({account['role']})")
+    browser_link("Sign out", "/browser-logout", sidebar=True)
+    if account["role"] == "Admin":
+        page = st.Page("pages/admin.py", title="Admin dashboard", default=True)
+    else:
+        page = st.Page("pages/user.py", title="Student dashboard", default=True)
 
-    with st.form("signup_form"):
-        name = st.text_input("Name", key="signup_name")
-        email = st.text_input("Email", key="signup_email")
-        password = st.text_input("Password", type="password", key="signup_password")
-        role = st.selectbox("Role", ["Admin", "User"], key="signup_role")
-
-        submit = st.form_submit_button("Signup")
-
-    if submit:
-        response = requests.post(
-            "http://localhost:8000/signup",
-            json={"username": name, "email": email, "password": password, "role": role},
-        )
-
-        if response.status_code == 200:
-            st.success("Signup successful!")
-        else:
-            st.error("Signup failed. Please try again.")
+st.navigation([page], position="hidden").run()
