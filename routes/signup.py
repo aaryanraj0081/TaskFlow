@@ -1,69 +1,44 @@
-from fastapi import Depends,HTTPException,APIRouter
-from pydantic import BaseModel
-from database import engine,SessionLocal
-from models import Base,User
-from sqlalchemy.orm import Session
+import bcrypt
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
-from passlib.context import CryptContext
+from sqlalchemy.orm import Session
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-def get_db():
-	db = SessionLocal()
-	try:
-		yield db
-	finally:
-		db.close()
+from database import get_db
+from models import User
+from schemas import Signup
 
 router = APIRouter()
 
 
-Base.metadata.create_all(bind=engine)
-
-@router.get("/")
-def home():
-	return{
-	"Signup for users working"
-}
-
-class Usercreate(BaseModel):
-	username: str
-	email : str
-	password : str
-	role : str
-
 @router.post("/signup")
-def signup(user:Usercreate, db: Session = Depends(get_db)):
-		print("Password Length:", len(user.password.encode("utf-8")))
+def signup(user: Signup, db: Session = Depends(get_db)):
+    email = str(user.email)
 
-		if len(user.password.encode("utf-8")) > 72:
-			raise HTTPException(
-				status_code=404,
-				detail="Password too long"
-			)
-		hashed_password = pwd_context.hash(user.password)
+    record = User(
+        username=user.username,
+        email=email,
+        password=bcrypt.hashpw(
+            user.password.encode("utf-8"),
+            bcrypt.gensalt(),
+        ).decode("utf-8"),
+        role="User",
+    )
 
-		new_user = User(
-		username = user.username,
-		email = user.email,
-		password = hashed_password,
-		role = user.role
-		)
+    try:
+        db.add(record)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if db.query(User.id).filter(User.email == email).first():
+            raise HTTPException(
+                status_code=409,
+                detail="Email already exists",
+            ) from None
+        raise
 
-		try:
-			db.add(new_user)
-			db.commit()
-			db.refresh(new_user)
-
-		except IntegrityError:
-			db.rollback()
-			raise HTTPException(
-				status_code=400,
-				detail="Email entered already Exists"
-				)
-		return {
-			"id":new_user.id,
-			"username":new_user.username,
-			"email":new_user.email
-			}
+    db.refresh(record)
+    return {
+        "id": record.id,
+        "username": record.username,
+        "email": record.email,
+    }
